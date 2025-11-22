@@ -1,4 +1,3 @@
-
 from django import forms
 from .models import UploadedDataset
 
@@ -7,10 +6,21 @@ class UploadForm(forms.ModelForm):
         model = UploadedDataset
         fields = ['name', 'file', 'text_column', 'label_column']
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Dataset name'}),
-            'file': forms.FileInput(attrs={'class': 'form-control'}),
-            'text_column': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'review_text'}),
-            'label_column': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'label'}),
+            'name': forms.TextInput(
+                attrs={'class': 'form-control', 'placeholder': 'Dataset name'}
+            ),
+            'file': forms.FileInput(
+                attrs={
+                    'class': 'form-control',
+                    'accept': '.csv,.json',  # allow CSV and JSON uploads
+                }
+            ),
+            'text_column': forms.TextInput(
+                attrs={'class': 'form-control', 'placeholder': 'review_text'}
+            ),
+            'label_column': forms.TextInput(
+                attrs={'class': 'form-control', 'placeholder': 'label'}
+            ),
         }
 
 class TrainForm(forms.Form):
