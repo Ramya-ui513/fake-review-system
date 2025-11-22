@@ -1,6 +1,6 @@
-
 import os, json, time, joblib, pandas as pd, numpy as np
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.conf import settings
 from django.contrib import messages
 from .forms import UploadForm, TrainForm
@@ -8,15 +8,30 @@ from .models import UploadedDataset, TrainedModel
 from .ml_utils import detect_columns, train_algorithms, apply_best
 from sklearn.feature_extraction.text import CountVectorizer
 
-def _read_csv(path):
+# --------------------------------------
+#   UNIVERSAL DATA READER (CSV + JSON)
+# --------------------------------------
+def _read_dataset(path):
+    ext = os.path.splitext(path)[1].lower()
+
+    # --------- JSON normal ---------
+    if ext == ".json":
+        try:
+            return pd.read_json(path)
+        except ValueError:
+            # JSON Lines fallback
+            return pd.read_json(path, lines=True)
+
+    # --------- CSV fallback ---------
     try:
         return pd.read_csv(path)
     except Exception:
-        try:
-            return pd.read_csv(path, encoding='latin-1')
-        except Exception as e:
-            raise e
+        return pd.read_csv(path, encoding="latin-1")
 
+
+# --------------------------------------
+#                 HOME
+# --------------------------------------
 def home(request):
     if request.method == 'POST':
         form = UploadForm(request.POST, request.FILES)
@@ -26,25 +41,42 @@ def home(request):
             return redirect('eda', dataset_id=ds.id)
     else:
         form = UploadForm()
-    datasets = UploadedDataset.objects.order_by('-uploaded_at')[:5]
-    return render(request, 'home.html', {'form': form, 'datasets': datasets})
 
+    datasets = UploadedDataset.objects.order_by('-uploaded_at')[:5]
+
+    return render(request, 'home.html', {
+        'form': form,
+        'datasets': datasets
+    })
+
+
+# --------------------------------------
+#                  EDA
+# --------------------------------------
 def eda(request, dataset_id):
     ds = get_object_or_404(UploadedDataset, id=dataset_id)
-    df = _read_csv(ds.file.path)
-    # Auto-detect columns if defaults aren't present
-    text_col = ds.text_column if ds.text_column in df.columns else detect_columns(df)[0]
-    label_col = ds.label_column if ds.label_column in df.columns else detect_columns(df)[1]
+    df = _read_dataset(ds.file.path)
+
+    # Auto-detect columns
+    text_col = (
+        ds.text_column if ds.text_column in df.columns
+        else detect_columns(df)[0]
+    )
+    label_col = (
+        ds.label_column if ds.label_column in df.columns
+        else detect_columns(df)[1]
+    )
 
     # Simple EDA
     total = len(df)
     nulls = df.isna().sum().to_dict()
     preview = df.head(12).to_html(classes='table table-sm table-striped', index=False)
+
     class_counts = None
     if label_col in df.columns:
         class_counts = df[label_col].value_counts(dropna=False).to_dict()
 
-    # top tokens (quick)
+    # Top terms
     top_terms = []
     try:
         cv = CountVectorizer(max_features=20, stop_words='english')
@@ -66,11 +98,22 @@ def eda(request, dataset_id):
         'top_terms': top_terms,
     })
 
+
+# --------------------------------------
+#               TRAIN MODELS
+# --------------------------------------
 def train(request, dataset_id):
     ds = get_object_or_404(UploadedDataset, id=dataset_id)
-    df = _read_csv(ds.file.path)
-    text_col = ds.text_column if ds.text_column in df.columns else detect_columns(df)[0]
-    label_col = ds.label_column if ds.label_column in df.columns else detect_columns(df)[1]
+    df = _read_dataset(ds.file.path)
+
+    text_col = (
+        ds.text_column if ds.text_column in df.columns
+        else detect_columns(df)[0]
+    )
+    label_col = (
+        ds.label_column if ds.label_column in df.columns
+        else detect_columns(df)[1]
+    )
 
     if request.method == 'POST':
         form = TrainForm(request.POST)
@@ -79,13 +122,42 @@ def train(request, dataset_id):
             test_size = form.cleaned_data['test_size']
             random_state = form.cleaned_data['random_state']
 
-            runs, best, split = train_algorithms(df, text_col, label_col, algos, test_size, random_state, out_dir=os.path.join(settings.MEDIA_ROOT, 'models'))
-            if not runs:
-                messages.error(request, 'No models ran. Ensure required libraries are installed (xgboost/catboost optional).')
+            # --- SAFELY call train_algorithms so 4 algos can run without crashing ---
+            try:
+                runs, best, split = train_algorithms(
+                    df, text_col, label_col,
+                    algos, test_size, random_state,
+                    out_dir=os.path.join(settings.MEDIA_ROOT, 'models')
+                )
+            except ValueError as e:
+                # e.g. only one class in labels, etc.
+                messages.error(request, f"Training failed: {e}")
+                return redirect('eda', dataset_id=ds.id)
+            except Exception as e:
+                messages.error(request, f"Unexpected error during training: {e}")
                 return redirect('train', dataset_id=ds.id)
 
-            # Save each model metadata
+            if not runs:
+                messages.error(
+                    request,
+                    'No models ran. Check that your dataset has at least two label classes '
+                    'and that optional libraries (xgboost/catboost) are installed if selected.'
+                )
+                return redirect('train', dataset_id=ds.id)
+
+            # Save only successful models (those without error and with valid paths)
             for r in runs:
+                metrics = r.get('metrics', {})
+                if 'error' in metrics:
+                    # Optional: show a per-algorithm warning
+                    messages.warning(
+                        request,
+                        f"{r['algorithm']} skipped: {metrics['error']}"
+                    )
+                    continue
+                if not r.get('vectorizer_path') or not r.get('model_path'):
+                    continue
+
                 TrainedModel.objects.create(
                     dataset=ds,
                     algorithm=r['algorithm'],
@@ -95,14 +167,22 @@ def train(request, dataset_id):
                     train_seconds=r['seconds']
                 )
 
-            # Attach best marker to session for results page
+            if not best:
+                messages.error(
+                    request,
+                    'All selected algorithms failed. Please check your data and try again.'
+                )
+                return redirect('train', dataset_id=ds.id)
+
+            # Save best to session
             request.session['last_best_algo'] = best['algorithm']
             request.session['last_metrics'] = best['metrics']
 
-            messages.success(request, 'Training complete. Showing results.')
+            messages.success(request, 'Training complete.')
             return redirect('results', dataset_id=ds.id)
+
     else:
-        form = TrainForm(initial={'algorithms': ['lr','rf','xgb','cat']})
+        form = TrainForm(initial={'algorithms': ['lr', 'rf', 'xgb', 'cat']})
 
     return render(request, 'train.html', {
         'ds': ds,
@@ -111,28 +191,49 @@ def train(request, dataset_id):
         'label_col': label_col,
     })
 
+
+# --------------------------------------
+#                RESULTS
+# --------------------------------------
 def results(request, dataset_id):
     ds = get_object_or_404(UploadedDataset, id=dataset_id)
     models = TrainedModel.objects.filter(dataset=ds).order_by('-created_at')
-    df = _read_csv(ds.file.path)
-    # pick most recent best (by f1)
+
+    df = _read_dataset(ds.file.path)
+
     best_tm = None
     if models.exists():
-        best_tm = max(models, key=lambda m: m.metrics_json.get('f1', 0.0))
+        # ignore models whose metrics contain an 'error' key
+        valid_models = [
+            m for m in models
+            if not isinstance(m.metrics_json, dict) or 'error' not in m.metrics_json
+        ]
+        if valid_models:
+            best_tm = max(valid_models, key=lambda m: m.metrics_json.get('f1', 0.0))
 
     preds_preview = None
     best_name = None
     metrics = None
+
     if best_tm:
-        # Load vectorizer + model
         vec = joblib.load(best_tm.vectorizer_path)
         clf = joblib.load(best_tm.model_path)
-        pred, prob = apply_best(df, best_tm.dataset.text_column if best_tm.dataset.text_column in df.columns else df.columns[0], vec, clf)
+
+        pred, prob = apply_best(
+            df,
+            best_tm.dataset.text_column if best_tm.dataset.text_column in df.columns else df.columns[0],
+            vec, clf
+        )
+
         out = df.copy()
-        out['pred_label'] = np.where(pred==1, 'FAKE', 'GENUINE')
+        out['pred_label'] = np.where(pred == 1, 'FAKE', 'GENUINE')
         if prob is not None:
             out['prob_fake'] = prob.round(4)
-        preds_preview = out.head(20).to_html(classes='table table-striped table-sm', index=False)
+
+        preds_preview = out.head(20).to_html(
+            classes='table table-striped table-sm', index=False
+        )
+
         best_name = best_tm.algorithm
         metrics = best_tm.metrics_json
 
