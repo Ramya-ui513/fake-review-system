@@ -1,10 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Train</title>
-</head>
-<body>
 
-</body>
-</html>
+{% extends 'base.html' %}
+{% block content %}
+<div class="card p-4">
+  <h3>Train Models — {{ ds.name }}</h3>
+  <p class="muted">Choose algorithms. We'll show per‑model training time and metrics, then pick the best model for full‑dataset predictions.</p>
+  <form method="post" class="row g-3">
+    {% csrf_token %}
+    <div class="col-12">
+      <label class="form-label">Algorithms</label>
+      {{ form.algorithms }}
+    </div>
+    <div class="col-md-4">{{ form.test_size.label_tag }} {{ form.test_size }}</div>
+    <div class="col-md-4">{{ form.random_state.label_tag }} {{ form.random_state }}</div>
+    <div class="col-12">
+      <button class="btn btn-primary">Train</button>
+      <a href="{% url 'eda' ds.id %}" class="btn btn-secondary">Back</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

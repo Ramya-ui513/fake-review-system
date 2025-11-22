@@ -1,10 +1,53 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>EDA</title>
-</head>
-<body>
 
-</body>
-</html>
+{% extends 'base.html' %}
+{% block content %}
+<div class="card p-4">
+  <div class="d-flex justify-content-between align-items-center">
+    <div>
+      <h3 class="mb-0">EDA — {{ ds.name }}</h3>
+      <div class="muted">Rows: <span class="badge badge-soft">{{ total }}</span> • Text: <code>{{ text_col }}</code> • Label: <code>{{ label_col }}</code></div>
+    </div>
+    <div>
+      <a class="btn btn-primary" href="{% url 'train' ds.id %}">Train Models</a>
+    </div>
+  </div>
+  <hr/>
+  <h5>Preview</h5>
+  <div class="table-responsive">{{ preview|safe }}</div>
+  <div class="row mt-4">
+    <div class="col-md-6">
+      <h6>Nulls per column</h6>
+      <pre class="muted">{{ nulls|json_script:"nulls_json" }}</pre>
+      <ul>
+        {% for k, v in nulls.items %}
+          <li><code>{{ k }}</code>: {{ v }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="col-md-6">
+      <h6>Class distribution</h6>
+      {% if class_counts %}
+        <ul>
+          {% for k, v in class_counts.items %}
+            <li>{{ k }}: {{ v }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">Label column not found — you can still train and the system will infer 0/1 from values.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="mt-4">
+    <h6>Top terms (quick TF counts)</h6>
+    {% if top_terms %}
+      <div class="row">
+        {% for t, c in top_terms %}
+          <div class="col-md-3 mb-2"><span class="badge badge-soft">{{ t }}</span> × {{ c }}</div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">Could not compute top terms.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

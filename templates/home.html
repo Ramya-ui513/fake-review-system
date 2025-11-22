@@ -1,10 +1,37 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Home</title>
-</head>
-<body>
 
-</body>
-</html>
+{% extends 'base.html' %}
+{% block content %}
+<div class="row">
+  <div class="col-lg-7">
+    <div class="card p-4 mb-4">
+      <h3 class="mb-3">Upload Reviews Dataset</h3>
+      <p class="muted">CSV file with at least a text column (e.g., <code>review_text</code>) and an optional label column (e.g., <code>label</code>: 1=fake, 0=genuine).</p>
+      <form method="post" enctype="multipart/form-data" class="row g-3">
+        {% csrf_token %}
+        <div class="col-12">{{ form.name.label_tag }} {{ form.name }}</div>
+        <div class="col-12">{{ form.file.label_tag }} {{ form.file }}</div>
+        <div class="col-md-6">{{ form.text_column.label_tag }} {{ form.text_column }}</div>
+        <div class="col-md-6">{{ form.label_column.label_tag }} {{ form.label_column }}</div>
+        <div class="col-12">
+          <button class="btn btn-primary">Upload</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card p-4">
+      <h5>Recent Datasets</h5>
+      <ul class="list-group list-group-flush">
+        {% for d in datasets %}
+          <li class="list-group-item bg-transparent text-dark border-secondary d-flex justify-content-between align-items-center">
+            <span>{{ d.name }}</span>
+            <a href="{% url 'eda' d.id %}" class="btn btn-sm btn-secondary">Open EDA</a>
+          </li>
+        {% empty %}
+          <li class="list-group-item bg-transparent text-light border-secondary">No datasets yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

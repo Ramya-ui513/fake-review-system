@@ -1,10 +1,47 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Results</title>
-</head>
-<body>
 
-</body>
-</html>
+{% extends 'base.html' %}
+{% block content %}
+<div class="card p-4">
+  <div class="d-flex justify-content-between align-items-center">
+    <h3 class="mb-0">Results — {{ ds.name }}</h3>
+    <a href="{% url 'train' ds.id %}" class="btn btn-secondary">Re‑Train</a>
+  </div>
+  <hr/>
+  <h5>All Model Runs</h5>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped">
+      <thead><tr><th>Algorithm</th><th>Train (s)</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th><th>ROC AUC</th></tr></thead>
+      <tbody>
+        {% for m in models %}
+          <tr>
+            <td>{{ m.algorithm }}{% if best_name == m.algorithm %} <span class="badge badge-soft">best</span>{% endif %}</td>
+            <td>{{ m.train_seconds }}</td>
+            <td>{{ m.metrics_json.accuracy|default:"-" }}</td>
+            <td>{{ m.metrics_json.precision|default:"-" }}</td>
+            <td>{{ m.metrics_json.recall|default:"-" }}</td>
+            <td>{{ m.metrics_json.f1|default:"-" }}</td>
+            <td>{{ m.metrics_json.roc_auc|default:"-" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7">No results yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <hr/>
+  <h5>Best Model</h5>
+  {% if best_name %}
+    <p><strong>{{ best_name }}</strong> selected by highest F1 score.</p>
+    <p class="muted">Metrics: {{ metrics }}</p>
+  {% else %}
+    <p>No model selected.</p>
+  {% endif %}
+  <hr/>
+  <h5>Predictions Preview (first 20 rows)</h5>
+  {% if preds_preview %}
+    <div class="table-responsive">{{ preds_preview|safe }}</div>
+  {% else %}
+    <p class="muted">Train at least one model to view predictions.</p>
+  {% endif %}
+</div>
+{% endblock %}
