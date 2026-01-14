@@ -85,8 +85,14 @@ def predict_review(text):
     probabilities = model.predict_proba(features)[0]
     
     result = le_label.inverse_transform([prediction])[0]
-    confidence = max(probabilities)
-    fake_probability = probabilities[1] if len(probabilities) > 1 else 0
+    
+    confidence = probabilities[prediction]
+    
+    if 'CG' in le_label.classes_:
+        fake_index = list(le_label.classes_).index('CG')
+        fake_probability = probabilities[fake_index]
+    else:
+        fake_probability = 0.0
     
     return result, confidence, fake_probability
 
